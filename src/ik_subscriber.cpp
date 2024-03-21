@@ -44,7 +44,7 @@ public:
 
 private:
 void callback(const geometry_msgs::msg::Pose::SharedPtr msg) {
-
+// kleine änderung 
         // TEST
    std::string new_content = read_pose_file("path/to/your/pose.txt");
         if (new_content != current_file_content_) {
