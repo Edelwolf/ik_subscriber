@@ -1,3 +1,7 @@
+// colcon build --packages-select ik_subscriber
+// source install/setup.bash
+// ros2 run ik_subscriber ik_subscriber
+
 #include "rclcpp/rclcpp.hpp"
 #include <geometry_msgs/msg/pose.hpp>
 #include "ik_interfaces/srv/calc_ik.hpp"
