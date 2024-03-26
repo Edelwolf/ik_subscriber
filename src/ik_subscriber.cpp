@@ -1,57 +1,48 @@
 #include "rclcpp/rclcpp.hpp"
-// #include "interfaces_for_ik_service/srv/client_srv.hpp"
-// #include "interfaces_for_ik_service/msg/client_msg.hpp"
 #include <geometry_msgs/msg/pose.hpp>
-
-// #include <ik_solver/interfaces/msg/.h>
 #include "ik_interfaces/srv/calc_ik.hpp"
-
+#include <fstream>
+#include <sstream>
+#include <string>
 
 using std::placeholders::_1;
 
 class SubscriberNode : public rclcpp::Node {
 public:
     SubscriberNode() : Node("subscriber_node") {
-        // Initialisierung des ROS 2 Service-Clients für Kinematik
         kinematics_client_ = create_client<ik_interfaces::srv::CalcIK>("kinematics");
-
-        // Warten auf den Service, um sicherzustellen, dass er verfügbar ist
         while (!kinematics_client_->wait_for_service(std::chrono::seconds(1))) {
-            RCLCPP_INFO(get_logger(), "Kinematics service not available, waiting...");
+            RCLCPP_INFO(get_logger(), "Waiting for the kinematics service to be available...");
         }
 
-        // Erstellen des Subscribers, um Nachrichten vom Typ 
-        // interfaces_for_ik_service::msg::ClientMsg auf 
-        // dem Thema "chatter" zu abonnieren
-        subscription_ = this->create_subscription<geometry_msgs::msg::Pose>(
-            "chatter",
-            10,
-            std::bind(&SubscriberNode::callback, this, std::placeholders::_1)
-        );
-
-        // TEST
-
-                // Timer überprüft alle 1 Sekunde die Datei 
         timer_ = this->create_wall_timer(
             std::chrono::seconds(1),
-            std::bind(&FileWatcherNode::check_file_and_request_ik, this));
-
-        // Aktuellen Dateiinhalt initial leer setzen
-        current_file_content_ = "";
-
-        // TEST 
+            std::bind(&SubscriberNode::check_file_and_request_ik, this));
     }
 
 private:
-void callback(const geometry_msgs::msg::Pose::SharedPtr msg) {
-// kleine änderung 
-        // TEST
-   std::string new_content = read_pose_file("path/to/your/pose.txt");
+    void check_file_and_request_ik() {
+        std::string new_content = read_pose_file("/home/flehm/ros2_ws/src/ik_subscriber/src/position.txt");
         if (new_content != current_file_content_) {
-            // Datei hat sich geändert, aktualisiere den aktuellen Inhalt und sende Anfrage
             current_file_content_ = new_content;
-            send_ik_request(parse_pose_from_content(new_content));
+            auto pose = parse_pose_from_content(new_content);
+            send_ik_request(pose);
         }
+    }
+
+    void send_ik_request(const geometry_msgs::msg::Pose& pose) {
+        auto request = std::make_shared<ik_interfaces::srv::CalcIK::Request>();
+        request->pose = pose;
+
+        kinematics_client_->async_send_request(request,
+            [this](rclcpp::Client<ik_interfaces::srv::CalcIK>::SharedFuture future) {
+                auto response = future.get();
+                if (response) {
+                    RCLCPP_INFO(this->get_logger(), "IK calculation successful.");
+                } else {
+                    RCLCPP_ERROR(this->get_logger(), "Failed to receive response from service.");
+                }
+            });
     }
 
     std::string read_pose_file(const std::string& file_path) {
@@ -61,50 +52,36 @@ void callback(const geometry_msgs::msg::Pose::SharedPtr msg) {
         return buffer.str();
     }
 
-
-        // TEST 
-
-    // Pose-Nachricht zuweisen
-    auto request = std::make_shared<ik_interfaces::srv::CalcIK::Request>();
-    request->pose = *msg; 
-
-    // Asynchroner Aufruf des Service
-    auto result_future = kinematics_client_->async_send_request(request,
-        [this](rclcpp::Client<ik_interfaces::srv::CalcIK>::SharedFuture future) {
-            auto response = future.get();
-            // Antwort der berechneten Gelenkzustände ausgeben
-            if(response) {
-                RCLCPP_INFO(this->get_logger(), "Service call successful.");
-                // Iteration über die ik_joint_states und Ausgabe
-                for (const auto& joint_state : response->ik_joint_states) {
-                    RCLCPP_INFO(this->get_logger(), "Joint State:");
-                    // Ausgabe der Gelenknamen und -zustände
-                    for (size_t i = 0; i < joint_state.name.size(); ++i) {
-                        RCLCPP_INFO(this->get_logger(), "  %s: %f", joint_state.name[i].c_str(), joint_state.state[i]);
-                    }
-                }
-            } else {
-                RCLCPP_ERROR(this->get_logger(), "Failed to receive response from service.");
+    geometry_msgs::msg::Pose parse_pose_from_content(const std::string& content) {
+        geometry_msgs::msg::Pose pose;
+        std::istringstream stream(content);
+        std::string line;
+        while (std::getline(stream, line)) {
+            std::istringstream line_stream(line);
+            std::string key;
+            double value;
+            if (getline(line_stream, key, ':') && (line_stream >> value)) {
+                if (key == "position_x") pose.position.x = value;
+                else if (key == "position_y") pose.position.y = value;
+                else if (key == "position_z") pose.position.z = value;
+                else if (key == "orientation_x") pose.orientation.x = value;
+                else if (key == "orientation_y") pose.orientation.y = value;
+                else if (key == "orientation_z") pose.orientation.z = value;
+                else if (key == "orientation_w") pose.orientation.w = value;
             }
-        });
-}
-
+        }
+        return pose;
+    }
 
     rclcpp::Client<ik_interfaces::srv::CalcIK>::SharedPtr kinematics_client_;
-    rclcpp::Subscription<geometry_msgs::msg::Pose>::SharedPtr subscription_;
+    rclcpp::TimerBase::SharedPtr timer_;
+    std::string current_file_content_;
 };
 
 int main(int argc, char *argv[]) {
     rclcpp::init(argc, argv);
-
-    auto subscriber_node = std::make_shared<SubscriberNode>();
-
-    rclcpp::spin(subscriber_node);
-
+    auto node = std::make_shared<SubscriberNode>();
+    rclcpp::spin(node);
     rclcpp::shutdown();
-
     return 0;
 }
-
-
-
