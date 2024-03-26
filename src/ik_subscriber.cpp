@@ -22,7 +22,7 @@ public:
 
 private:
     void check_file_and_request_ik() {
-        std::string new_content = read_pose_file("/home/flehm/ros2_ws/src/ik_subscriber/src/position.txt");
+        std::string new_content = read_pose_file("/home/flehm/ros2_ws/src/ik_subscriber/src/position.txt"); // Pfad zur Pose-Datei anpassen
         if (new_content != current_file_content_) {
             current_file_content_ = new_content;
             auto pose = parse_pose_from_content(new_content);
@@ -37,10 +37,18 @@ private:
         kinematics_client_->async_send_request(request,
             [this](rclcpp::Client<ik_interfaces::srv::CalcIK>::SharedFuture future) {
                 auto response = future.get();
-                if (response) {
-                    RCLCPP_INFO(this->get_logger(), "IK calculation successful.");
+                if (response && !response->ik_joint_states.empty()) {
+                    RCLCPP_INFO(this->get_logger(), "IK calculation successful, printing solutions:");
+                    for (const auto& joint_state : response->ik_joint_states) {
+                        if (joint_state.is_valid) {
+                            RCLCPP_INFO(this->get_logger(), "Valid solution found:");
+                            for (size_t i = 0; i < joint_state.name.size(); ++i) {
+                                RCLCPP_INFO(this->get_logger(), "  %s: %f", joint_state.name[i].c_str(), joint_state.state[i]);
+                            }
+                        }
+                    }
                 } else {
-                    RCLCPP_ERROR(this->get_logger(), "Failed to receive response from service.");
+                    RCLCPP_ERROR(this->get_logger(), "Failed to receive response from service or no solutions found.");
                 }
             });
     }
